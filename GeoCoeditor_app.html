@@ -1,0 +1,1988 @@
+﻿<!doctype html>
+<html lang="en">
+ <head>
+
+    
+	<style>
+      	.map {
+        	width: 100%;
+        	height:700px;
+      	}
+	</style>
+
+<style>
+      	.msgarea {
+		width: 80%;
+        	height:100px;
+        	overflow-y: auto
+      	}
+</style>
+
+<style>
+.topleftdata {
+  position: absolute;
+  top: 30px;
+  left: 100px;
+  font-size: 18px;
+  text-align: left;
+  z-index: 1;
+  background-color: rgba(200,200,200,.9);
+  width: 300px;
+  display: inline-block;
+  border-radius: 5px;
+  overflow: auto; 
+  padding: 1px;
+}
+</style>
+
+<style>
+p {
+  margin: 2px;
+  padding: 0;
+  line-height: 1;
+}
+</style>
+
+
+	<script src="https://cdn.jsdelivr.net/npm/ol@v8.1.0/dist/ol.js"></script>   
+    	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.1.0/ol.css">
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.2/socket.io.js"></script>  
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.5.0/proj4.js"></script>
+	<script src=" https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js "></script>
+
+      
+</head>
+
+
+<body>
+
+	<div id="map" class="map"></div>
+
+
+	<div class="topleftdata" id="podaci"> 
+		<p><align="left">Status:<span id="ispisStatusa" ></span>  </p> 
+		<p><align="left" >Name:<span id="ispisImena" ></span> </p>
+		<p><align="left" >Others:<span id="spojeniKlijenti" ></span> </p>
+		<p><align="left" >Done:<span id="gotoviKlijenti" ></span> </p>
+		<p><align="left" >Lost:<span id="izgubljeniKlijenti" ></span> </p>          
+ 	</div> 
+
+
+<div style="width: 100%;">
+     <div style="width: 50%; height: 100px; float: left;"> 
+  
+	<p align="left" style="white-space:nowrap">Coords:<span id="ispisKoordinata" ></span>	
+	<label>
+  	<b>Base map:</b>
+  	<select class="podloga" name="podloga">
+   	 <option value="none">None</option>
+    	 <option value="dgudof">Orthophoto</option>
+   	 <option value="osm">OSM</option>
+  	</select>
+	</label>
+
+	
+	
+	
+	
+	<p align="left"><button id="sessionstatus" class="code">Req. session status</button>
+	<align="left"><button id="infotoggle" class="code">Show/hide conversions</button>
+	<align="left"><button id="errortoggle" class="code">Show/hide errors</button>
+<!--	Real time sync <input type="checkbox" id="sendrealtime" name="Send in real time" checked="true">  --> 
+
+	
+
+	
+	<br align="left"><b> Edits done: <span id="editsdone"> --- </span> </b> 
+	<br align="left"><b> Client: <span id="klijentidispis"> --- </span> </b> 
+	
+	<br align="left"><button id="savereport" class="code">Save report</button>
+	<align="left"><button id="resetserver" class="code">Reset server</button>
+	<align="left"><button id="doneediting" class="code">Done editing</button>
+
+
+     </div>
+     <div style="margin-left: 50%; height: 100px;"> 
+		<align="left"><button id="register" class="code">Register your name</button>
+		<input type="text" id="ime" name="ime">
+		
+		<br> Enter message  <input type="text" id="message" name="message" >
+		<div id="klijentispis" class="msgarea"> </div>
+     </div>
+</div>
+
+<script type="text/javascript">
+
+
+
+//******************************************************************************
+//			Configs, global variables and layers
+//******************************************************************************
+
+document.getElementById('resetserver').style.visibility='hidden';
+document.getElementById('infotoggle').style.visibility='hidden';
+document.getElementById('errortoggle').style.visibility='hidden';
+
+//const socket = io.connect('http://10.0.239.86:2500/', {'reconnection': false});
+const socket = io.connect('http://192.168.1.116:2500/', {'reconnection': false});
+//const socket = io.connect('http://www.sasavranic.com:2500/', {'reconnection': false});
+
+
+var opParamsFound=false;
+var tempInsertPos;
+var rangeEndRightId=false;
+var rangeEndLeftId=false;
+var rangeGotExtended=false;
+
+
+
+var workingFeature;
+var initialFeature;
+document.getElementById('resetserver').style.visibility='hidden'
+var unprocessedMessages = [];
+
+var clientId = Math.floor(Math.random() * 100000);
+var clientName;
+document.getElementById("klijentidispis").textContent=clientId;
+var isInstantiated=false;
+var lastInsertPos=0;
+var currentlyEditing=false;
+var unAppliedCurrentState = false;
+var unAppliedMessages = false;
+var coordsBefore;
+
+var algorithm;
+
+var vectorSourcePreuzeti = new ol.source.Vector();
+var vectorSourceInfo = new ol.source.Vector();
+var vectorSourceError = new ol.source.Vector();
+var vectorSourceError2 = new ol.source.Vector();
+var vectorSourceError3 = new ol.source.Vector();
+var vectorSourceError4 = new ol.source.Vector();
+var clickCancellations = [];
+
+
+var vectorSourceDiD = new ol.source.Vector();
+
+var gjsonFormat = new ol.format["GeoJSON"](); 
+var sessionReport = [];
+
+var srConversions=0;
+var localReorders=0;
+var srConversionList=[];
+var editsDone=0;
+var insertsDone=0;
+var updatesDone=0;
+var deletesDone=0;
+var maxBufferSize=0;
+var ooBuffer=0;
+var indexRangeHits=0;
+
+var ukupnoVrijeme=0;
+var brojRacunanja=0;
+var peekTime=0;
+var startTime;
+var endTime;
+
+var firstEdit = 0;
+var lastEdit = 0;
+var firstGlobalEdit = 0;
+var lastGlobalEdit = 0;
+
+var lastOpType;
+var dragStartTime;
+var dragEndTime;
+var timeDragging=0;
+
+
+
+proj4.defs('EPSG:3765','+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
+ol.proj.proj4.register(proj4);
+var htrs96 = ol.proj.get('EPSG:3765');
+
+
+function reInitialize(){
+	vectorSourcePreuzeti.clear();
+	vectorSourceInfo.clear();
+	vectorSourceError.clear();
+        vectorSourceError2.clear();
+        vectorSourceError3.clear();
+	unprocessedMessages = [];
+	clickCancellations = [];
+	unAppliedCurrentState = false;
+	srConversions=0;
+	localReorders=0;
+	srConversionList=[];
+	ukupnoVrijeme=0;
+	brojRacunanja=0;
+	peekTime=0;
+	editsDone=0;
+	insertsDone=0;
+	updatesDone=0;
+	deletesDone=0;
+	maxBufferSize=0;
+	ooBuffer=0;
+	indexRangeHits=0;
+	firstEdit = 0;
+	lastEdit = 0;
+	firstGlobalEdit = 0;
+	lastGlobalEdit = 0;
+        dragStartTime = 0;
+        dragEndTime= 0;
+        timeDragging= 0;
+
+}
+
+
+
+const stiloviPoligona = [
+  new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: 'black',
+      width: 2,
+    }),
+    fill: new ol.style.Fill({
+      color: 'rgba(0, 0, 255, 0.1)',
+    }),
+   //text: function (feature) {return new ol.style.Text({text: feature.getId()})}
+  }),
+  new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 4,
+      fill: new ol.style.Fill({
+        color: 'orange',
+      }),
+    }),
+    geometry: function (feature) {
+      // return the coordinates of the first ring of the polygon
+      var coordinates = feature.getGeometry().getCoordinates()[0][0];
+      return new ol.geom.Point(coordinates);
+    },
+  }),
+new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 2,
+      fill: new ol.style.Fill({
+        color: 'red',
+      }),
+    }),
+    geometry: function (feature) {
+      var coordinates = feature.getGeometry().getCoordinates()[0];
+      return new ol.geom.MultiPoint(coordinates);
+    },
+  }),
+
+];
+
+
+
+const stiloviPoligonaSelect = [
+  new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      //color: '#0eff00',
+	//color: 'black',
+      width: 1,
+    }),
+    fill: new ol.style.Fill({
+      color: 'rgba(0, 255, 0, 0)',
+    }),
+   //text: function (feature) {return new ol.style.Text({text: feature.getId()})}
+  }),
+ new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 4,
+      fill: new ol.style.Fill({
+        color: 'orange',
+      }),
+    }),
+    geometry: function (feature) {
+      // return the coordinates of the first ring of the polygon
+      var coordinates = feature.getGeometry().getCoordinates()[0][0];
+      return new ol.geom.Point(coordinates);
+    },
+  }),
+new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 2,
+      fill: new ol.style.Fill({
+        color: 'red',
+      }),
+    }),
+    geometry: function (feature) {
+      var coordinates = feature.getGeometry().getCoordinates()[0];
+      return new ol.geom.MultiPoint(coordinates);
+    },
+  }),
+];
+
+
+
+const stiloviPoligonaModify = [
+new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 3,
+      fill: new ol.style.Fill({
+        color: '#00FF00',
+      }),
+    }),
+   
+  }),
+];
+
+const stilInfo = [
+          // Linestring
+          new ol.style.Style({
+            stroke: new ol.style.Stroke({
+                color: '#00FF00',
+                width: 2
+            })
+        }),
+];
+
+const stilError = [
+     new ol.style.Style({
+    		image: new ol.style.Circle({
+      		radius: 5,
+      		fill: new ol.style.Fill({color: '#00FF00'}),
+      		stroke: new ol.style.Stroke({color: '#00FF00', width: 2})
+       		})
+     })     
+];
+
+const stilError2 = [
+     new ol.style.Style({
+    		image: new ol.style.RegularShape({
+      		fill: new ol.style.Fill({color: 'purple'}),
+      		stroke: new ol.style.Stroke({color: 'purple', width: 2}),
+		points: 4,
+      		radius: 5,
+      		radius2: 0,
+      		angle: Math.PI / 4,
+       		})
+     })     
+];
+
+const stilError3 = [
+     new ol.style.Style({
+    		image: new ol.style.Circle({
+      		radius: 4,
+      		fill: new ol.style.Fill({color: 'yellow'}),
+      		stroke: new ol.style.Stroke({color: 'yellow', width: 2})
+       		})
+     })     
+];
+
+
+const stilError4 = [
+     new ol.style.Style({
+    		image: new ol.style.RegularShape({
+      		fill: new ol.style.Fill({color: 'red'}),
+      		stroke: new ol.style.Stroke({color: 'red', width: 3}),
+		points: 4,
+      		radius: 5,
+      		radius2: 0,
+      		angle: Math.PI / 4,
+       		})
+     })     
+];
+
+
+
+
+var vectorSlojPreuzeti = new ol.layer.Vector({
+        source: vectorSourcePreuzeti,
+           minResolution: 0.01,
+           maxResolution: 100000,
+        visible: true,
+        title: 'Važeće stanje',
+        style: stiloviPoligona
+      });
+
+var vectorSlojInfo = new ol.layer.Vector({
+        source: vectorSourceInfo,
+           minResolution: 0.01,
+           maxResolution: 100000,
+        visible: true,
+        title: 'Info',
+        style: stilInfo
+      });
+
+var vectorSlojError = new ol.layer.Vector({
+        source: vectorSourceError,
+           minResolution: 0.01,
+           maxResolution: 100000,
+        visible: true,
+        title: 'Error',
+        style: stilError
+      });
+
+var vectorSlojError2 = new ol.layer.Vector({
+        source: vectorSourceError2,
+           minResolution: 0.01,
+           maxResolution: 100000,
+        visible: true,
+        title: 'Error',
+        style: stilError2
+      });
+
+var vectorSlojError3 = new ol.layer.Vector({
+        source: vectorSourceError3,
+           minResolution: 0.01,
+           maxResolution: 100000,
+        visible: true,
+        title: 'Error',
+        style: stilError3
+      });
+
+var vectorSlojError4 = new ol.layer.Vector({
+        source: vectorSourceError4,
+           minResolution: 0.01,
+           maxResolution: 100000,
+        visible: true,
+        title: 'Error',
+        style: stilError4
+      });
+
+
+
+
+const DOF = new ol.layer.Tile({
+            title: 'DOF 2011',
+            type: 'base',
+            visible: true,
+            source: new ol.source.TileWMS({
+            //url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_2019_2020/wms',
+	    url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_2011/wms',
+            //params: {'LAYERS': 'OI.OrthoimageCoverage', 'TILED': true} 
+	    params: {'LAYERS': 'OrthoImagery', 'TILED': true}                  
+                    })
+           });   
+
+const osm = new ol.layer.Tile({source: new ol.source.OSM()});
+     
+
+  
+  
+
+//******************************************************************
+//                           Drag & drop geoJSON geometry to map
+//******************************************************************
+
+      
+
+	var dragAndDropInteraction = new ol.interaction.DragAndDrop({
+       	 formatConstructors: [
+       	   ol.format.GPX,
+       	   ol.format.GeoJSON,
+       	   ol.format.IGC,
+       	   ol.format.KML,
+       	   ol.format.TopoJSON
+       	 ]
+	}); 
+
+
+	dragAndDropInteraction.on('addfeatures', function(event) {
+          	reInitialize();
+          	vectorSourcePreuzeti.addFeatures(event.features);
+		workingFeature = vectorSourcePreuzeti.getFeatures()[0];	
+		var coords=workingFeature.getGeometry().getCoordinates()[0];
+		map.getView().fit(vectorSourcePreuzeti.getExtent());		
+
+		// We do not insert the last point which is identical to the first (thus: coords.length-1).
+		for (var i = 0; i < coords.length-1; i++) {
+			var dodani= localInsert(crdtDoc, clientId, i, coords[i], true, false); 
+		}
+			socket.emit('CRDT object creation',  {crdtdoc:crdtDoc})			
+			isInstantiated=true;
+			document.getElementById("klijentispis").textContent="Geometry copied, ready for work";
+
+		initialFeature=workingFeature.clone();
+
+ 	});
+
+
+
+
+//**********************************************************
+//Instancing map, view, etc...
+//************************************************************
+
+
+    var view = new ol.View({
+	  projection: htrs96,
+          minResolution: 0.05,
+            center: [625000, 5020000],
+          zoom: 12
+        })
+
+
+     var map = new ol.Map({
+        target: 'map',
+        view: view
+      });
+
+
+
+	map.addInteraction(dragAndDropInteraction);
+        map.addLayer(DOF);	
+	map.addLayer(osm);	
+	map.addLayer(vectorSlojPreuzeti);
+	map.addLayer(vectorSlojInfo);
+	map.addLayer(vectorSlojError);
+	map.addLayer(vectorSlojError3);
+        map.addLayer(vectorSlojError4);
+	map.addLayer(vectorSlojError2);
+	
+	DOF.setVisible (false); 
+	osm.setVisible (false)	
+
+     var mousePositionControl = new ol.control.MousePosition({
+        coordinateFormat: ol.coordinate.createStringXY(1),
+        className: 'custom-mouse-position',
+        target: document.getElementById("ispisKoordinata"),
+        undefinedHTML: ''
+      });
+
+	map.addControl(mousePositionControl);
+
+	const selectElement = document.querySelector('.podloga');
+		selectElement.addEventListener('change', (event) => {
+  		//console.log (event.target.value);
+		if (event.target.value=='dgudof') {DOF.setVisible (true); osm.setVisible (false)}     
+		if (event.target.value=='osm') {DOF.setVisible (false); osm.setVisible (true)} 
+		if (event.target.value=='none') {DOF.setVisible (false); osm.setVisible (false)}       
+	});   
+
+
+
+//********************************************************
+//             Buttons
+//********************************************************
+
+
+
+document.getElementById('message').onkeydown = function(e) {
+	if (e.keyCode == 13) {
+		var message=document.getElementById("message").value;
+		socket.emit('chat message',  {clientName:clientName, msg: message} );
+		document.getElementById("message").value="";
+	}
+};
+
+
+
+document.getElementById('sessionstatus').onclick = function() {
+		requestSessionStatus();
+		console.log ("------------Session status requested---------------------")
+};
+
+
+document.getElementById('register').onclick = function() {
+		clientName=document.getElementById("ime").value;
+		if (clientName != "") {
+			socket.emit('send id', {clientId: clientId, name:clientName});
+			document.getElementById('register').style.visibility='hidden';
+			document.getElementById('ime').style.visibility='hidden';
+			document.getElementById("ispisImena").textContent=clientName;
+			if (clientName=="12345_54321") document.getElementById('resetserver').style.visibility='visible';
+		}
+		else alert ("Please enter your name first...");
+};
+
+document.getElementById('resetserver').onclick = function() {
+		var poruka= {doReset:true};
+		socket.emit('reset server',  poruka );
+};
+
+document.getElementById('doneediting').onclick = function() {
+		var poruka= {done:true};
+		socket.emit('done editing',  poruka );
+
+	currentlyEditing=false
+	document.getElementById('ispisKoordinata').style.color='green';
+
+	if (unAppliedMessages) {
+		var didAnything=integrateMessagesFromBuffer();
+		if (didAnything) applyCurrentState (); 
+		unAppliedMessages=false;
+	} 
+};
+
+
+document.getElementById('infotoggle').onclick = function() {
+		if (vectorSlojInfo.getVisible())  {vectorSlojInfo.setVisible(false)}
+		else {vectorSlojInfo.setVisible(true)}
+};
+
+document.getElementById('errortoggle').onclick = function() {
+		if (vectorSlojError.getVisible())  {vectorSlojError.setVisible(false); vectorSlojError2.setVisible(false); vectorSlojError3.setVisible(false)}
+		else {vectorSlojError.setVisible(true); vectorSlojError2.setVisible(true); vectorSlojError3.setVisible(true);}
+};
+
+
+document.getElementById('savereport').onclick = function() {
+
+		//var geoJsonInfo = gjsonFormat.writeFeatures(vectorSourceInfo.getFeatures(), { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857'});
+		//var geoJsonError = gjsonFormat.writeFeatures(vectorSourceError.getFeatures(), { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857'});
+
+		var geoJsonInfo = gjsonFormat.writeFeatures(vectorSourceInfo.getFeatures());
+		var geoJsonError = gjsonFormat.writeFeatures(vectorSourceError.getFeatures());
+		var geoJsonError2 = gjsonFormat.writeFeatures(vectorSourceError2.getFeatures());
+		var geoJsonError3 = gjsonFormat.writeFeatures(vectorSourceError3.getFeatures());
+		//var geoJsonError4 = gjsonFormat.writeFeatures(vectorSourceError4.getFeatures());
+		var geoJsonFeature = gjsonFormat.writeFeatures(vectorSourcePreuzeti.getFeatures());
+		var geoJsonInitFeature = gjsonFormat.writeFeatures([initialFeature]); 
+		var both="REPORT:" + JSON.stringify(sessionReport) + 
+			"\n--INFOS:" + geoJsonInfo+ 
+			"\n--CONFLICTS:" + geoJsonError + 
+			"\n--LOCAL REORDERS:" + geoJsonError3 + 
+			"\n--POS NOT FOUNDS:" + geoJsonError2  + 
+			"\n--DRAGSEGMENT ERRORS:" + JSON.stringify(clickCancellations)  + 
+			"\n--INITIAL FEATURE:" + geoJsonInitFeature + 
+			"\n--FINAL FEATURE:" + geoJsonFeature;
+
+
+		var blob = new Blob([both], {type: "text/plain;charset=utf-8"});
+		saveAs(blob, "crdtSessionReport_.txt");
+};
+
+
+
+
+
+
+//**************************************************** SOCKET IO EVENTS **********************************
+
+
+socket.on('connected', function (data) {
+	if (socket.recovered) {
+  		document.getElementById("ispisStatusa").textContent="You are REconnected";
+		document.getElementById("ispisStatusa").style.color='green';
+		document.getElementById("ispisStatusa").style.fontWeight='bold';
+
+	} else {
+		//if (firstEdit==0) firstEdit=performance.now();
+		algorithm=data.algorithm;
+		//alert ("You are connected, algorithm=" + algorithm + ", please enter your name and register...");
+		document.getElementById("ispisStatusa").textContent="You are connected";
+		document.getElementById("ispisStatusa").style.color='green';
+		document.getElementById("ispisStatusa").style.fontWeight='bold';
+  	}
+});
+
+
+socket.on('disconnect', function (data) {
+	document.getElementById("ispisStatusa").textContent="You have been disconnected";
+	document.getElementById("ispisStatusa").style.color='red';
+	document.getElementById("ispisStatusa").style.fontWeight='bold';
+	selektiranje2.setActive(false);
+	editiranje.setActive(false);
+	mouseClickController.setActive(false);
+});
+
+
+socket.on('participant update', function (data) {
+	var popis="";
+	var popis1="";
+	var popis2="";
+
+	var brojac=0
+	for (var c in data) {
+		if (data[c].status==1) {
+			brojac++; popis=popis + " " + brojac + "." +data[c].name
+		} else if (data[c].status==2) {
+			 popis1=popis1 + " " +data[c].name
+		}
+		else popis2=popis2 + " " +data[c].name
+	}
+
+	document.getElementById("spojeniKlijenti").textContent=popis;
+	document.getElementById("gotoviKlijenti").textContent=popis1;
+	document.getElementById("izgubljeniKlijenti").textContent=popis2;
+
+});
+
+
+
+
+
+socket.on('controller', function (data) {
+	document.getElementById('resetserver').style.visibility='visible';
+	document.getElementById('infotoggle').style.visibility='visible';
+	document.getElementById('errortoggle').style.visibility='visible';
+});
+
+socket.on('chat message', function (msg) {
+	var el=document.getElementById('klijentispis');
+	var content = document.createElement ("p");
+	//content.innerHTML=JSON.stringify(msg.clientName) + ": " + JSON.stringify(msg.msg);
+	content.innerHTML=msg.clientName + ": " + msg.msg;
+	el.insertBefore(content, el.firstChild);
+});
+
+socket.on('controller', function (msg) {
+	socket.emit('Algorithm setup',  {algorithm: "YJS"});
+});
+
+
+socket.on('client reset', function (msg) {
+	reInitialize();
+	alert ("Session reset initiated, refresh browser and re-register name");
+	window.top.close();
+});
+
+socket.on('Session status request', function (msg) {
+	sessionReport=[];
+	reportSessionStatus(msg);
+});
+
+
+socket.on('Session status report', function (msg) {
+	console.log(JSON.stringify(msg));
+	sessionReport.push(msg);
+});
+
+socket.on('CRDT change creation', function (data) {
+	processMessageCRDT(data);
+});
+
+
+socket.on('Conversion data', function (data) {
+	var infoLs = new ol.geom.LineString(data.geom);
+	var infoFeat= new ol.Feature({geometry: infoLs});
+	infoFeat.setId(data.id);
+	//infoFeat.set("time", data.time);
+	//infoFeat.set("opType", data.opType);
+	vectorSourceInfo.addFeature(infoFeat);	
+});
+
+
+socket.on('Error data', function (data) {
+if (data.type==1) {
+	var ft = vectorSourceError.getFeatureById(data.id);
+	if (ft) {
+		var convs=parseInt(ft.get("convs"));
+		convs++ ;
+		ft.set("convs", convs);
+	} else {
+		var infoPt = new ol.geom.Point(data.geom);
+		var infoFeat= new ol.Feature({geometry: infoPt});
+		infoFeat.setId(data.id);
+		infoFeat.set("mode", data.mode);
+		infoFeat.set("convs", 1);
+		infoFeat.set("opType", data.opType);
+		infoFeat.set("time", data.time);
+		vectorSourceError.addFeature(infoFeat);	
+	}
+} else if (data.type==2){
+		var infoPt = new ol.geom.Point(data.geom);
+		var infoFeat= new ol.Feature({geometry: infoPt});
+		vectorSourceError2.addFeature(infoFeat);	
+} else if (data.type==3){
+		var infoPt = new ol.geom.Point(data.geom);
+		var infoFeat= new ol.Feature({geometry: infoPt});
+		infoFeat.set("opType", data.opType);
+		infoFeat.set("siteId", data.siteId);
+		infoFeat.set("time", data.time);
+		infoFeat.set("bufferedOps", data.bufferedOps);
+		infoFeat.set("duration", data.duration);
+		vectorSourceError3.addFeature(infoFeat);	
+} else if (data.type==4){
+		clickCancellations.push (data);
+		//var infoPt = new ol.geom.Point(data.geom);
+		//var infoFeat= new ol.Feature({geometry: infoPt});
+		//infoFeat.set("opType", data.opType);
+		//infoFeat.set("time", data.time);
+		//vectorSourceError4.addFeature(infoFeat);	
+}
+
+
+});
+
+
+
+// This is used only when transferring results of D&D to speed up instatiation on receiving clients 
+// by avoiding redraws for each received operation
+
+socket.on('CRDT object creation', function (data) {
+	
+    crdtDoc.content=data.crdtdoc.content;
+    crdtDoc.version=data.crdtdoc.version;
+    crdtDoc.length=data.crdtdoc.length;
+    crdtDoc.maxSeq=data.crdtdoc.maxSeq;
+    isInstantiated=false;
+    applyCurrentState (); 
+});
+
+
+
+
+//******************************************************  PRIMARY CONTROL PROTOCOL *********************************************
+
+//CRDT DELTA APPLYING AND PROCESSING ON MODIFYEND
+//Upon each modifyEnd event the operation is composed using the parameters from GUI and transmitted to server.
+//after that, if there were received and integrated changes a redraw is done.
+
+
+function postModifyProcessorCRDT (trans) {
+	
+	crdtDoc.outQueue.push(trans);
+	//if (document.getElementById("sendrealtime").checked) {
+		var currQuLen=crdtDoc.outQueue.length;
+	// SECTION : delta  transmitter
+		for (var i = 0; i < currQuLen; i++) {
+			var msg=crdtDoc.outQueue[0];
+			socket.emit('CRDT change creation',  {delta:msg} );
+			crdtDoc.outQueue.shift();
+		}
+	//}
+
+	
+	applyCurrentState (); 	
+	currentlyEditing=false;
+	document.getElementById('ispisKoordinata').style.color='green';
+}
+
+
+// Takes the received message and decides whether to apply immediately or deffered (if the user currently drags)
+function processMessageCRDT(data){
+	
+	unprocessedMessages.push(data.delta); 
+	if (unprocessedMessages.length>maxBufferSize) {maxBufferSize=unprocessedMessages.length}
+	
+	if (currentlyEditing) {
+		unAppliedMessages = true;
+	} else {
+		var didAnything=integrateMessagesFromBuffer();
+		applyCurrentState (); 
+	}
+	
+	//if (document.getElementById("sendrealtime").checked) {
+		var currQuLen=crdtDoc.outQueue.length;
+		// SECTION : delta  transmitter
+		for (var i = 0; i < currQuLen; i++) {
+			var msg=crdtDoc.outQueue[0];
+			socket.emit('CRDT change creation',  {delta:msg} );
+			crdtDoc.outQueue.shift();
+		}
+	//}
+
+};
+
+
+
+function integrateMessagesFromBuffer(){
+     var didAnything=false;
+     var lastTurnDidAnything=true;
+
+  // Repeat processing until we reach a turn where nothing happened or array empty  
+  while (unprocessedMessages.length>0 && lastTurnDidAnything) {
+     lastTurnDidAnything=false;
+     var ctr=0; // Custom counter for array index
+     
+     // Process messeages and delete those that got integrated sequentially forward from the start of array (in order of arrival)
+     while (unprocessedMessages.length>0 && ctr<unprocessedMessages.length) {
+	var iCanDelete;
+	var iCanInsert;
+	var deletePos;
+
+	startTime = performance.now();	
+	
+	// 1. Is there something to delete, and can we?
+	if (unprocessedMessages [ctr].del.id !== undefined) {
+		iCanDelete = canDeleteNow  (messageToItem(unprocessedMessages [ctr].del), crdtDoc);
+	} else {iCanDelete=true}
+
+	// Is there something to integrate, and can we?
+	if (unprocessedMessages [ctr].new.id !== undefined) {
+		iCanInsert = canInsertNow  (messageToItem(unprocessedMessages [ctr].new), crdtDoc);
+	} else {iCanInsert=true}
+
+
+	// Atomic, if both delete and insert are executable
+	if (iCanDelete && iCanInsert) {
+		didAnything=true;
+		lastTurnDidAnything=true;
+		if (unprocessedMessages [ctr].del.id !== undefined && unprocessedMessages [ctr].new.id !== undefined) lastOpType="upd";
+		else if (unprocessedMessages [ctr].del.id == undefined && unprocessedMessages [ctr].new.id !== undefined) lastOpType="ins";
+		else lastOpType="del";
+
+
+		// Delete if there is something to.
+		// 1. We first do the delete part.
+		if (unprocessedMessages [ctr].del.id !== undefined) {
+			deletePos=localDeleteFromOther (crdtDoc, unprocessedMessages [ctr].del, lastInsertPos);
+		} 
+
+
+		// Insert if there is something to.
+		// 2. Then we insert.
+		if (unprocessedMessages [ctr].new.id !== undefined) {
+				integrateYjs(crdtDoc, messageToItem(unprocessedMessages [ctr].new) , lastInsertPos);
+				var coord=messageToItem(unprocessedMessages [ctr].new).content;
+				//unprocessedMessages [ctr].new={};
+		} 
+
+		// ***********************************************************************************
+		// Here resyncing of the range upon integrating remote update and delete ops gets done
+		// ***********************************************************************************
+
+		if (rangeEndLeftId && lastOpType=="upd") {
+			if (idEq2(rangeEndLeftId, unprocessedMessages [ctr].del.id[0], unprocessedMessages [ctr].del.id[1])) {
+				var rangeEndLeftIdx=getPreviousUndeletedItemIdx (crdtDoc, lastInsertPos)
+				rangeEndLeftId=crdtDoc.content[rangeEndLeftIdx].id
+				rangeGotExtended=true
+				//console.log ("REL PUSHED BACK BY REMOTE UPDATE")
+			}
+		}
+
+		if (rangeEndRightId && lastOpType=="upd") {
+			if (idEq2(rangeEndRightId, unprocessedMessages [ctr].del.id[0], unprocessedMessages [ctr].del.id[1])) {
+				var rangeEndRightIdx=getNextUndeletedItemIdx (crdtDoc, lastInsertPos)
+				rangeEndRightId=crdtDoc.content[rangeEndRightIdx].id
+				rangeGotExtended=true
+				//console.log ("RER PUSHED FWD BY REMOTE UPDATE")
+			}
+		}
+
+		if (rangeEndLeftId && lastOpType=="del") {
+			if (idEq2(rangeEndLeftId, unprocessedMessages [ctr].del.id[0], unprocessedMessages [ctr].del.id[1])) {
+				var rangeEndLeftIdx=getPreviousUndeletedItemIdx (crdtDoc, deletePos)
+				rangeEndLeftId=crdtDoc.content[rangeEndLeftIdx].id
+				rangeGotExtended=true
+				//console.log ("REL PUSHED BACK BY REMOTE DELETE")
+			}
+		}
+
+		if (rangeEndRightId && lastOpType=="del") {
+			if (idEq2(rangeEndRightId, unprocessedMessages [ctr].del.id[0], unprocessedMessages [ctr].del.id[1])) {
+				var rangeEndRightIdx=getNextUndeletedItemIdx (crdtDoc, deletePos)
+				rangeEndRightId=crdtDoc.content[rangeEndRightIdx].id
+				rangeGotExtended=true
+				//console.log ("RER PUSHED FWD BY REMOTE DELETE")
+			}
+		}
+
+		// ********************************************************************
+		// End of resyncing of the range upon integrating update and delete ops
+		// ********************************************************************
+
+
+		// Finnaly, delete the message from buffer
+		unprocessedMessages.splice (ctr,1);
+		ctr--;
+
+		endTime = performance.now();
+		if (lastOpType=="upd" || lastOpType=="ins") mjerenjePerformansi (startTime,endTime);
+	}
+
+	ctr++;
+
+    } // Inner while loop
+  } // Outer while
+
+  
+  return didAnything;
+};
+
+
+
+
+function applyCurrentState () {
+			
+	var newState=getArray(crdtDoc);
+	var polyOriginItemIdx=getNextUndeletedItemIdx (crdtDoc, -1)
+	var polyOriginPoint=crdtDoc.content[polyOriginItemIdx].content
+	newState.push (polyOriginPoint); // We need to always copy the first undeleted point to last position in order for polygon to be correct
+	//newState.push (newState[0]); // We need to always copy the first point to last position in order for polygon to be correct
+	
+	if (!isInstantiated) {
+		var olGeometrija= new ol.geom.Polygon([newState]);
+		workingFeature = new ol.Feature({geometry: olGeometrija});
+		vectorSourcePreuzeti.addFeature (workingFeature); 
+		map.getView().fit(vectorSourcePreuzeti.getExtent());	
+		isInstantiated=true;
+	} else {
+		//Preparation for the redrawing of geometry on GUI
+		var newGeom = new ol.geom.Polygon([newState]);
+		//Actual Redrawing on GUI happens here
+		workingFeature.setGeometry(newGeom);
+		if (newState.length==3) {map.getView().fit(vectorSourcePreuzeti.getExtent())}	
+	}
+
+}
+
+
+function messageToItem(itemDataIn){
+
+	return {
+		content: itemDataIn.content,
+        	id: itemDataIn.id,
+        	isDeleted: itemDataIn.isDeleted,
+        	originLeft: itemDataIn.originLeft,
+        	originRight: itemDataIn.originRight,
+        	insertAfter: true,
+        	seq: itemDataIn.seq, // Only for AM.
+    		}
+}
+
+
+
+
+//******************************************************************** SESSIONS REPORTING ******************************************************
+
+function requestSessionStatus () {
+			
+			var coordsToSend=workingFeature.getGeometry().getCoordinates()[0];	
+			socket.emit('Session status request',  {coords:coordsToSend} );	
+}
+
+
+
+function reportSessionStatus (msg) {
+			var convergenceStatus;
+			var myCoords=workingFeature.getGeometry().getCoordinates()[0];	
+			var remoteCoords=msg.coords;
+
+			if (JSON.stringify(myCoords) === JSON.stringify(remoteCoords)) {
+					convergenceStatus=true;
+				} else {
+					convergenceStatus=false;
+			}
+
+			socket.emit('Session status report',  {browser: navigator.userAgent,
+							       algorithm:algorithm,
+							       clientId:clientId,
+							       clientName: clientName,
+							       editsDone: editsDone,
+							       insertsDone: insertsDone,
+							       updatesDone: updatesDone,
+							       deletesDone: deletesDone,
+							       maxBufferSize: maxBufferSize,
+							       ooBuffer: ooBuffer,
+							       indexRangeHits: indexRangeHits,
+							       avgTime:(ukupnoVrijeme/brojRacunanja).toFixed(),
+							       peakTime: peekTime.toFixed(),
+							       convergenceStatus:convergenceStatus,
+							       srConversions:srConversions,
+							       srConversionList:JSON.stringify(srConversionList),
+							       localReorders: localReorders,
+							       duration: ((lastEdit-firstEdit)/1000).toFixed(),
+							       globalDuration: ((lastGlobalEdit-firstGlobalEdit)/1000).toFixed(),
+							       timeDragging: (timeDragging/1000).toFixed(),
+				                               vertexCount: workingFeature.getGeometry().getCoordinates()[0].length});	
+	
+}
+
+
+//*****************************************************************************************************************************
+//*****************************************  REFERENCE CRDTs  *****************************************************************
+// The following part of the code was taken from https://github.com/josephg/reference-crdts
+// converted to pure js using (https://www.typescriptlang.org/docs/handbook/compiler-options.html) 
+// and further modified as needed for this project.
+// It is provided under the ISC license (https://opensource.org/license/isc-license-txt) as is the original code:
+// Copyright 2021 Joseph Gentle
+//*****************************************************************************************************************************
+
+var newCRDTDoc = function () { return ({
+    content: [],
+    version: {},
+    length: 0,
+    maxSeq: 0,
+    outQueue: [] // Out queue is used to get the ability to postpone transmitting of operations.
+}); };
+
+let crdtDoc = newCRDTDoc();
+
+// **** Common code and helpers
+// We never actually compare the third argument in sync9.
+var idEq2 = function (a, agent, seq) { return (a != null && (a[0] === agent && a[1] === seq)); };
+var idEq = function (a, b) { return (a == b || (a != null && b != null && a[0] === b[0] && a[1] === b[1])); };
+var hits = 0;
+var misses = 0;
+
+
+// idx_hint is a small optimization so when we know the general area of
+// an item, we search nearby instead of just scanning the whole document.
+var findItem2 = function (doc, needle, atEnd, idx_hint) {
+    if (atEnd === void 0) { atEnd = false; }
+    if (idx_hint === void 0) { idx_hint = -1; }
+    if (needle == null)
+        return -1;
+    else {
+        var agent_1 = needle[0], seq_1 = needle[1];
+        // This little optimization *halves* the time to run the editing trace benchmarks.
+	
+        if (idx_hint >= 0 && idx_hint < doc.content.length) {
+            var hint_item = doc.content[idx_hint];
+            if ((!atEnd && idEq2(hint_item.id, agent_1, seq_1))
+                || (hint_item.content != null && atEnd && idEq2(hint_item.id, agent_1, seq_1))) {
+                hits++;
+                return idx_hint;
+            }
+
+             //Try nearby.
+             const RANGE = 10
+             for (let i = idx_hint < RANGE ? 0 : idx_hint - RANGE; i < doc.content.length && i < idx_hint + RANGE; i++) {
+               const item = doc.content[i]
+               if ((!atEnd && idEq2(item.id, agent_1, seq_1))
+                   || (item.content != null && atEnd && idEq2(item.id, agent_1, seq_1))) {
+                 hits++
+		 indexRangeHits++
+                 return i
+               }
+             }
+
+        }
+        misses++;
+        var idx = doc.content.findIndex(function (_a) {
+            var content = _a.content, id = _a.id;
+            return ((!atEnd && idEq2(id, agent_1, seq_1)) || (content != null && atEnd && idEq2(id, agent_1, seq_1)));
+        });
+         // : doc.content.findIndex(({id}) => idEq(id, needle))
+        if (idx < 0) throw Error('Could not find item'); // Could use a ternary if not for this!
+
+        return idx;
+    }
+};
+
+
+var findItem = function (doc, needle, idx_hint) {
+    if (idx_hint === void 0) { idx_hint = -1; }
+    return (findItem2(doc, needle, false, idx_hint));
+};
+
+
+
+var findItemAtPos = function (doc, pos, stick_end) {
+    if (stick_end === void 0) { stick_end = false; }
+    var i = 0;
+    // console.log('pos', pos, doc.length, doc.content.length)
+    for (; i < doc.content.length; i++) {
+        var item = doc.content[i];
+        if (stick_end && pos === 0)
+            return i;
+        else if (item.isDeleted || item.content == null)
+            continue;
+        else if (pos === 0)
+            return i;
+        pos--;
+    }
+    if (pos === 0)
+        return i;
+    else
+        throw Error('past end of the document');
+};
+
+
+
+// Original localInsert, slightly extended to support update operations and resyncing by range.
+// Note: The Delete part only uses item id detected by operation generator
+
+function localInsert(doc, agent, pos, content, isInitial, isUpdate) {
+    var _a, _b, _c, _d, _e;
+    //var i = findItemAtPos(doc, pos)
+    var i
+    var result= [];
+    var cancelInsert=false
+    var success=false
+	
+    // Part dealing with local ops being outdated because the data structure changed while the user was dragging.
+    // NOTE: Not needed during initial loading (or when no buffered remote ops got integrated)
+    if (!isInitial) { 	
+	var tOp=positionTentativeOp (doc, agent, pos, content, isInitial, isUpdate)			
+	i=tOp.finalPos
+	cancelInsert=tOp.cancelInsert
+    } else {
+	i = findItemAtPos(doc, pos)
+    }
+
+// Now comes the standard part od localinsert (positions fixed)
+if (!cancelInsert) {
+
+    // Do the delete first
+    if (isUpdate) {
+	const itemtoDelete = tempItemToDelete
+	if (!itemtoDelete.isDeleted) {
+    		itemtoDelete.isDeleted = true
+    		doc.length -= 1
+  	}
+	result.push(itemtoDelete);
+    }
+
+    // Then the insert
+    var newItem = integrateYjs(doc, {
+        content: content,
+        id: [agent, ((_a = doc.version[agent]) !== null && _a !== void 0 ? _a : -1) + 1],
+        isDeleted: false,
+        originLeft: (_c = (_b = doc.content[i - 1]) === null || _b === void 0 ? void 0 : _b.id) !== null && _c !== void 0 ? _c : null,
+        originRight: (_e = (_d = doc.content[i]) === null || _d === void 0 ? void 0 : _d.id) !== null && _e !== void 0 ? _e : null,
+        insertAfter: true,
+        seq: doc.maxSeq + 1, // Only for AM.
+    }, i);
+    success=true
+    result.push(newItem);
+  
+} 
+
+result.unshift (success)
+return result;
+
+}
+
+
+var getArray = function (doc) { return (doc.content.filter(function (i) { return !i.isDeleted && i.content != null; }).map(function (i) { return i.content; })); };
+
+
+var isInVersion = function (id, version) {
+    if (id == null)
+        return true;
+    var seq = version[id[0]];
+    return seq != null && seq >= id[1];
+};
+
+
+var canInsertNow = function (op, doc) { return (
+// We need op.id to not be in doc.versions, but originLeft and originRight to be in.
+// We're also inserting each item from each agent in sequence.
+!isInVersion(op.id, doc.version)
+    && (op.id[1] === 0 || isInVersion([op.id[0], op.id[1] - 1], doc.version))
+    && isInVersion(op.originLeft, doc.version)
+    && isInVersion(op.originRight, doc.version)); };
+
+
+
+var integrateYjs = function (doc, newItem, idx_hint) {
+    if (firstGlobalEdit == 0) firstGlobalEdit=performance.now ()
+    lastGlobalEdit = performance.now ()
+    var identicalLeft=false; // HM-mod
+    var reorderByGeom=false; // HM-mod
+    var _a;
+    if (idx_hint === void 0) { idx_hint = -1; }
+    var lastSeen = (_a = doc.version[newItem.id[0]]) !== null && _a !== void 0 ? _a : -1;
+    if (newItem.id[1] !== lastSeen + 1)
+        throw Error('Operations out of order');
+    doc.version[newItem.id[0]] = newItem.id[1];
+    var left = findItem(doc, newItem.originLeft, idx_hint - 1);
+    var destIdx = left + 1;
+    var right = newItem.originRight == null ? doc.content.length : findItem(doc, newItem.originRight, idx_hint);
+    var scanning = false;
+    for (var i = destIdx;; i++) {
+        // Inserting at the end of the document. Just insert.
+        if (!scanning)
+            destIdx = i;
+        if (i === doc.content.length)
+            break;
+        if (i === right)
+            break; // No ambiguity / concurrency. Insert here.
+        var other = doc.content[i];
+        var oleft = findItem(doc, other.originLeft, idx_hint - 1);
+        var oright = other.originRight == null ? doc.content.length : findItem(doc, other.originRight, idx_hint);
+        // The logic below can be summarized in these two lines:
+        // if (oleft < left || (oleft === left && oright === right && newItem.id[0] <= o.id[0])) break
+        // if (oleft === left) scanning = newItem.id[0] <= o.id[0]
+        // Ok now we implement the punnet square of behaviour
+        if (oleft < left) {
+            // Top row. Insert, insert, arbitrary (insert)
+            break;
+        }
+        else if (oleft === left) {
+	    identicalLeft=true;
+	    reorderByGeom = false; // HM-mod
+            // Middle row.
+            //if (newItem.id[0] > other.id[0]) { // Original conflict sort condition
+	    
+	    //if (!isBeforeConflicting (doc.content[oleft].content, newItem.content, other.content)) { 	
+	    if (!isBeforeConflicting (doc, oleft, newItem, other)) { //This is the modified conflct handler
+		// We record that id-based sort would have sorted differntly	
+	    	if (newItem.id[0] <= other.id[0])  {
+			reorderByGeom = true
+		} 
+                scanning = false;
+                continue;
+            }
+            else if (oright === right) {
+                break;
+            }
+            else {
+                scanning = true;
+                continue;
+            }
+        }
+        else {
+            // Bottom row. Arbitrary (skip), skip, skip
+            continue;
+        }
+    }
+
+
+    	if (reorderByGeom) {
+		srConversions ++;
+		// We also collect the ids of converted items to be able to do specific item count 
+		// across all clients within a session
+		currentItemContent=doc.content[destIdx-1].content;
+		srConversionList.push(newItem.id); 
+		socket.emit('Conversion data',  {geom:[newItem.content, currentItemContent], id:newItem.id} );
+		socket.emit('Error data',  {type:1, mode:"Global", geom:newItem.content, id:newItem.id, opType: lastOpType, time: ((performance.now()-firstEdit)/1000).toFixed()} );
+    	}
+
+	
+    // We've found the position. Insert here.
+    doc.content.splice(destIdx, 0, newItem);
+    if (!newItem.isDeleted)
+        doc.length += 1;
+
+	lastInsertPos=i; // HM added
+	return newItem; // HM added
+
+};
+
+
+//*****************************************************************************************************************************
+//*****************************************  END OF REFERENCE CRDTs  **********************************************************
+//*****************************************************************************************************************************
+
+
+// **************  Additional CRDT functions ***********************
+
+var canDeleteNow = function (op, doc) { 
+	return isInVersion(op.id, doc.version);
+ };
+
+
+
+function localDelete (doc, agent, itemToDelete){
+  if (!itemToDelete.isDeleted) {
+    itemToDelete.isDeleted = true
+    doc.length -= 1
+  }
+  return itemToDelete;
+}
+
+
+function localDeleteFromOther (doc, itemtoDelete, idx_hint){
+  
+  deletedAtPos=false
+  const itemPos=findItem(doc, itemtoDelete.id, idx_hint)
+  const item = doc.content [itemPos]
+  if (!item.isDeleted) {
+    deletedAtPos=itemPos
+    item.isDeleted = true
+    doc.length -= 1
+  }
+  //return deletedAtPos+1
+  return deletedAtPos
+}
+
+
+function getNextUndeletedItemIdx (doc, idxIn){
+	for (var i = idxIn+1 ; i < doc.content.length; i++) {
+		if (!doc.content[i].isDeleted) {return i}
+	}
+
+	// If the item is not found in the loop we've come to the end
+	// So we now start searching from the beginning forward
+	//for (var j = 0 ; j < doc.content.length; j++) {
+	for (var j = 0 ; j < idxIn; j++) {
+		if (!doc.content[j].isDeleted) {return j}
+	}
+
+	// This should not happen
+	//return false;
+	alert ("Critical error: Could not find PREVIOUS undeleted item's index");
+}
+
+function getPreviousUndeletedItemIdx (doc, idxIn){
+	for (var i = idxIn-1 ; i > -1; i--) {
+		if (!doc.content[i].isDeleted) {return i}
+	}
+
+	// If the item is not found in the loop we've come to the beginning
+	// So now we start searching backwards from the end
+	for (var j = doc.content.length-1 ; j > idxIn; j--) {
+		if (!doc.content[j].isDeleted) {return j}
+	}
+
+	// This should not happen
+	//return false;
+	alert ("Critical error: Could not find NEXT undeleted item's index");
+}
+
+
+
+
+
+
+
+//***************************************************************************************************************************************
+//  								Interactions and geometry redrawing
+//***************************************************************************************************************************************
+
+
+var selektiranje2 = new ol.interaction.Select({style: stiloviPoligonaSelect});
+var editiranje = new ol.interaction.Modify({features: selektiranje2.getFeatures(), style: stiloviPoligonaModify});
+map.addInteraction(selektiranje2);
+map.addInteraction(editiranje);
+selektiranje2.setActive(true);
+editiranje.setActive(true);
+
+// *********************************************************************************************************
+// Stuff for syncing clicks and modify events to prevent integrating remote ops while local being generated
+// Basically, this makes sure that no remote op can get integrated as soon as user clicks, potentially initiating a modify event.
+// Handling modifystart is not sufficient because of the delay set by OL. Thus we set currentlyEditing=true as soon as the user clicks.
+// In a real world implementation this will probably need to be implemented in a more stable/systematic manner (possibly by digging in into Openlayers itself).
+// *********************************************************************************************************
+var mouseClickController = new ol.interaction.Pointer();
+map.addInteraction(mouseClickController);
+mouseClickController.setActive(true);
+
+// Each time the user clicks we presume he is about to start dragging
+mouseClickController.handleDownEvent=function(evt){
+	currentlyEditing=true
+	document.getElementById('ispisKoordinata').style.color='red';
+}
+
+// If he moves the map he's not gonna drag
+map.on('movestart',function(evt){
+	currentlyEditing=false
+	document.getElementById('ispisKoordinata').style.color='green';
+})
+
+// If he either selects or deselects he is not going to drag next.
+// So if there something in the in-buffer, we apply here.
+selektiranje2.on('select',function(evt){	
+	currentlyEditing=false
+	document.getElementById('ispisKoordinata').style.color='green';
+
+	if (unAppliedMessages) {
+		var didAnything=integrateMessagesFromBuffer();
+		if (didAnything) applyCurrentState (); 
+		unAppliedMessages=false;
+	} 
+
+})
+
+
+//**********************************
+// Tentative operation pre-generator
+//**********************************
+
+function makeTentativeOp(doc, posLeft, posRight, mode){
+// Mode=1 update operation -> right range end is one undeleted element further to the right
+// Mode=2 insert operation -> right range end is at insert position (which is guranteed to be undeleted) 
+	
+	// If origin point is hit then no real posLeft exists, and OL returns last polygon point in 2nd segment
+	// Hence correct item pos is on 1st segment
+	if (Math.abs(posLeft-posRight)>1) {
+			tempInsertPos=posLeft
+			var rightItemIdx=findItemAtPos(doc, posLeft)
+			if (mode==1) {
+				tempItemToDelete=doc.content[rightItemIdx]
+				console.log ("ORIGIN UPDATE") 
+				// For update ops the right range end is the next undeleted item from the item being updated
+				var rightRangeItemIdx=getNextUndeletedItemIdx(doc, rightItemIdx)
+				console.log ("ORIGIN UPDATE RR index " + rightRangeItemIdx) 
+				rangeEndRightId=doc.content[rightRangeItemIdx].id
+				var leftRangeItemIdx=getPreviousUndeletedItemIdx(doc, doc.content.length)
+				rangeEndLeftId=doc.content[leftRangeItemIdx].id
+			} else if (mode==2) { 
+				alert ("This situation should not be possible!!!")
+				console.log ("INSERT AFTER ORIGIN")
+				// For inserts, right range end is the item on which we position the insert (the one that gets pushed to the right)
+				rangeEndRightId=doc.content[rightItemIdx].id
+				var leftRangeItemIdx=getPreviousUndeletedItemIdx(doc, rightItemIdx)
+				rangeEndLeftId=doc.content[leftRangeItemIdx].id
+			}
+			
+	}
+	// In standard cases correct item pos is on 2nd segment
+	else {  
+			// This case can only be a simple insert (never na update). 
+			// Updating of geometry origin point always occurs on position zero.
+			// NOTE: tempItemLeft and tempItemRight are synonyms of originLeft and originRight (as they are at this stage)
+			tempInsertPos=posRight
+			
+			// However, when inserting point on the last segment then originRight doesn't really exist. 
+			// Still, correct pos is on the 2nd segment
+			if (tempInsertPos>=doc.length) { 
+				console.log ("INSERT ON LAST SEGMENT")
+				var rightRangeItemIdx=getNextUndeletedItemIdx(doc, -1)
+				rangeEndRightId=doc.content[rightRangeItemIdx].id
+				var leftRangeItemIdx=getPreviousUndeletedItemIdx(doc, doc.content.length) // was doc.content.length-1
+				rangeEndLeftId=doc.content[leftRangeItemIdx].id
+				//console.log ("REL AT =" + leftRangeItemIdx)
+				//console.log ("REL ID =" + rangeEndLeftId)
+
+			} else { 
+				console.log ("IS NORMAL")
+				var rightItemIdx=findItemAtPos(doc, posRight)
+				var leftRangeItemIdx=getPreviousUndeletedItemIdx(doc, rightItemIdx)
+				rangeEndLeftId=doc.content[leftRangeItemIdx].id
+				if (mode==1) {
+					tempItemToDelete=doc.content[rightItemIdx] 
+					// For update ops the right range end is the next undeleted item from the item being updated
+					var rightRangeItemIdx=getNextUndeletedItemIdx(doc, rightItemIdx)
+					rangeEndRightId=doc.content[rightRangeItemIdx].id
+					console.log ("IS UPDATE")
+					//console.log ("RER AT =" + rightRangeItemIdx)
+					//console.log ("RER ID =" + rangeEndRightId)
+				} else if (mode==2) { 
+					// For inserts, right range end is the item on which we position the insert (the one that gets pushed to the right)
+					rangeEndRightId=doc.content[rightItemIdx].id
+					console.log ("IS INSERT")
+					//console.log ("RER AT =" + rightItemIdx)
+					//console.log ("RER ID =" + rangeEndRightId)
+				}
+			}
+	}
+
+}
+
+
+
+//**************************************
+// Tentative operation final positioning
+//**************************************
+
+function positionTentativeOp (doc, agent, pos, content, isInitial, isUpdate) {
+    var i = findItemAtPos(doc, pos)
+    var cancelInsert=false
+    var success=false
+	
+    // Part dealing with local ops being outdated because the data structure changed while the user was dragging.
+    // NOTE: Not needed during initial loading (or when no buffered remote ops got integrated)
+    		
+		// ++Step 1: Finding current indexes of rangeEndLeft and rangeEndRight.
+		// Therewith we set the interval for placing our item.
+		// *** The left range end part ***
+			var rangeEndLeftIdx=findItem (doc, rangeEndLeftId, i)
+			console.log ("REL FINAL IDX=" + rangeEndLeftIdx)
+
+		// *** The right range end part ***
+			var rangeEndRightIdx=findItem (doc, rangeEndRightId, i)
+			console.log ("RER FINAL IDX=" + rangeEndRightIdx)
+
+			// ++Step 2
+			// We want to push our op to its natural position between the range ends. 
+			// Since the op to be inserted is still "pending" we are free to place it anywhere within the range.
+			// We simply iterate over the elements as they are ordered in array, completely disregard 
+			// the left-right pointers hierarchy and find its most appropriate position.
+			
+			var lastBestAngle = 3.14159 // Worst case (extremely small angle)
+			var isFound=false
+			var j=rangeEndLeftIdx // To be able to design the while loop (will be shifted to first index after range end left within while loop)
+			var firstNextUndeletedPointIdx=getNextUndeletedItemIdx (doc, rangeEndLeftIdx)
+			var secondNextUndeletedPointIdx=getNextUndeletedItemIdx (doc, firstNextUndeletedPointIdx)
+
+			// We detect simple situations (updates and inserts outside of the range) and handle them directly, by skipping the complex testing/positioning loop.
+			// Since many buffered ops. will be of such a type, performance should be less hindered by the whole tentative ops. processing mechanism.
+			// Note however that, a simplified version could simply skip this and let all operations be handled by the full algorithm.
+
+			if (isUpdate) {var pointToBeDeleted=tempItemToDelete.content; var targetPoint=doc.content[firstNextUndeletedPointIdx].content}
+
+			// In cases where range did not get modified (condition 1), for local INSERTS we simply check if condition 2: model position of original RER item is identical 
+			// to the model position of currently FIRST next undeleted point to the right from the original REL item. If condition 1 and condition 2 are true, then
+			// RER and REL remained direct neighbors (as they initially were), hence nothing happened between them so we can 
+			// simply insert on the position of the first next undeleted point to the right from REL.
+			if (!isUpdate && rangeEndRightIdx==firstNextUndeletedPointIdx && !rangeGotExtended) {
+				console.log ("******SIMPLE INSERT RESYNC*****")
+				isFound=true 
+				i=firstNextUndeletedPointIdx
+			}
+
+			// In cases where range did not get modified (condition 1), for local UPDATES we check if condition 2: model position of original RER item is identical 
+			// to the model position of currently SECOND next undeleted point to the right from the original REL item. If condition 1 and condition 2 are true, then
+			// between REL and RER there is only a single undeleted point, as was the situation initially. However, there is a third requirement for a local update to be considered simple.
+			// We need to make sure that the point currently between RER and REL has identical coordinates as the original target of the UPDATE operation's delete component (item).
+			// If also the third requirement is true then we can simply insert on the position of the first next undeleted point to the right from REL. 
+			// If third requirement is not true, this means that some remote operation (or a combination of remote operations) updated this local update's target point without modifying range ends, 
+			// hence we must let this situation be handled by full positioning algorithm.
+			else if (isUpdate && rangeEndRightIdx==secondNextUndeletedPointIdx && !rangeGotExtended && vertexesIdentical (pointToBeDeleted,targetPoint)) {
+				console.log ("******SIMPLE UPDATE RESYNC*****"); 
+				isFound=true
+				i=firstNextUndeletedPointIdx
+			}
+			else {
+				// Since we ended up here, a buffered op extended the range of tentative local op, hence we must reposition it.
+				// We start counting buffered op at -1 since we always also process right range end which isnt a real buffered op (previously was incorrectly set ot -2)
+				var bufferedOpsCtr=-1
+				var start = performance.now();
+				do {
+				j++
+				if (j>=doc.content.length) j=0
+				
+				console.log ("PROCESSING IDX " + j)
+				// Mandatory condition: no intersections at current position
+				if (!doc.content[j].isDeleted) {
+					bufferedOpsCtr++
+					if (checkIntersection (doc, content, j, rangeEndLeftIdx, rangeEndRightIdx)) {
+						// Secondary condition: we want the position where the most straight split occurs (angle closest to Pi or 180 degrees)
+						var angleAtThis = angleAtPt (doc, content, j)
+						if (angleAtThis<lastBestAngle) {
+							lastBestAngle=angleAtThis
+							console.log ("GOT BETTER ANGLE " + angleAtThis)
+							i = j
+							isFound=true
+						} 
+					} 
+				} 
+
+				} while (j!=rangeEndRightIdx) 
+				var end = performance.now();
+				socket.emit('Error data',  {type:3, siteId: agent, geom:content, opType: lastOpType, time: ((performance.now()-firstEdit)/1000).toFixed(), bufferedOps:bufferedOpsCtr, duration: end-start } );
+				localReorders++
+
+			}
+
+			// If the position wasn't found (e.g. all elements within range are deleted) 
+			// we place the item right before the right range end
+			if (!isFound) {
+				i=rangeEndRightIdx; 
+				console.log ("POS NOT FOUND, PLACING AT " + i) 
+				socket.emit('Error data',  {type:2, siteId: agent, geom:content, opType: lastOpType, time: ((performance.now()-firstEdit)/1000).toFixed()} );
+			} 
+
+
+			console.log ("FINAL POS=" + i + "Best angle = " + lastBestAngle)
+			
+return {finalPos:i, cancelInsert: cancelInsert}
+
+}
+
+
+
+//*******************************
+// MODIFYSTART event handler
+//*******************************
+editiranje.on('modifystart',function(evt){
+
+		dragStartTime = performance.now();
+        
+		if (firstEdit==0) firstEdit=performance.now();
+		coordsBefore=selektiranje2.getFeatures().getArray()[0].getGeometry().getCoordinates()[0].deepClone();
+		
+		// With OL point delete modifications we can catch segments here only. OL updates are also handled here.
+		if (evt.target.dragSegments_.length>1){
+			console.log ("IN MODSTART")
+			var posLeft=evt.target.dragSegments_[0][0].index; 
+			var posRight=evt.target.dragSegments_[1][0].index; 
+			makeTentativeOp(crdtDoc, posLeft, posRight,1)
+			opParamsFound=true
+		} else {
+			opParamsFound=false
+		}
+		
+})
+
+
+//****************************
+// MODIFYEND event handler
+//****************************
+editiranje.on('modifyend',function(evt){
+		var result=[]
+		var cancelOp=false;
+		lastEdit=performance.now();
+        	dragEndTime= performance.now();
+        	timeDragging = timeDragging + (dragEndTime-dragStartTime);
+
+
+		// STEP 1: Get the tentative local op parameters (if not already created in modifystart event handler)
+		// OL inserts are handled here. 
+		if  (evt.target.dragSegments_.length>1 && !opParamsFound) {
+			console.log ("IN MODEND")
+			var posLeft=evt.target.dragSegments_[0][0].index; 
+			var posRight=evt.target.dragSegments_[1][0].index;
+			makeTentativeOp(crdtDoc, posLeft, posRight,2)
+						
+		// If getting posLeft and posRight failed using dragsegments (either modstart or modend) we do it here 
+		// the operation has to be cancelled. This sometimes happens (probably some OL level event syncing problem)
+		} else if (!opParamsFound) {
+
+			cancelOp=true
+			result.push(false)
+			socket.emit('Error data',  {type:4, siteId: clientId, errText: "Drag segments error"} );
+		}
+
+
+		// STEP 2: Integrate buffered remote ops
+		// First, in order to create the session wide most current state on this client, process any received ops if there ar any (but do not redraw)
+		if (unAppliedMessages) {
+			var didAnything=integrateMessagesFromBuffer();
+			unAppliedMessages=false;
+		}
+
+	
+
+	if (!cancelOp) {
+		// If local op got succesuflly created (op not canceled)
+		// We must also get the coords of the inserted point by tempInsertPos before we apply buffered remote ops.
+		// NOTE: The point coordinate in only known when the users completes the edit (after modifyend event fires), we couldn't have gotten it earlier!
+		coords=selektiranje2.getFeatures().getArray()[0].getGeometry().getCoordinates()[0];
+		if (coordsBefore.length==coords.length || coordsBefore.length<coords.length) var point=coords[tempInsertPos]
+
+
+		// STEP 3: Integrate local op
+		// Integrate the local operation
+
+		editsDone ++;
+		document.getElementById("editsdone").textContent=editsDone;
+		
+		var dodani={};
+		var brisani={};
+
+
+		//UPDATE
+		if (coordsBefore.length==coords.length) {
+			lastOpType="UPDlocal";
+			
+			// Remote deletes and a local insert near the end of the doc could cause the tempInsertPos to fall outside of the doc.
+			// So we put it at the end and let the algorithm find it the "hard" way.
+			if (tempInsertPos>crdtDoc.length) tempInsertPos=crdtDoc.length
+			
+			// The !didAnything parameter tells the localinsert to consider the call as a initialload (since no buffered ops got integrated)
+			result = localInsert(crdtDoc, clientId, tempInsertPos, point, !didAnything, true);
+			brisani=result[1];
+			dodani=result[2];
+			
+			updatesDone++;
+
+
+		//DELETE
+		} else if (coordsBefore.length>coords.length) {
+			lastOpType="DELlocal";
+			
+			brisani=localDelete (crdtDoc, clientId, tempItemToDelete);
+			result.push(true)
+			deletesDone++;
+
+		//INSERT
+		} else if (coordsBefore.length<coords.length) {
+			lastOpType="INSlocal";
+
+			// Remote deletes and a local insert near the end of the doc could cause the tempInsertPos to fall outside the doc
+			// So we put it at the end and let the algorithm find it the "hard" way.
+			if (tempInsertPos>crdtDoc.length) tempInsertPos=crdtDoc.length
+			
+			// The !didAnything parameter tells the localinsert to consider the call as a initialload (since no buffered ops got integrates)
+			var result = localInsert(crdtDoc, clientId, tempInsertPos, point, !didAnything, false);
+			dodani=result[1];
+
+			insertsDone++;
+
+		}
+	}
+
+
+		// STEP 4
+		// Finishing, resetting, redrawing, transmitting local op
+
+		tempInsertPos=false
+		rangeEndRightId=false
+		rangeEndLeftId=false
+		tempItemToDelete=false
+		opParamsFound=false
+		rangeGotExtended=false
+
+		if (result[0]) {
+			var trans ={new: dodani, del: brisani }
+			postModifyProcessorCRDT (trans)
+		// Even if we generated no op (e.g. it was canceled by snap-canceling or dragsegments error) we must redraw now, to draw the remote updates
+		} else  {
+			applyCurrentState (); 
+			currentlyEditing=false;
+			document.getElementById('ispisKoordinata').style.color='green';
+		}
+
+
+})
+
+
+
+
+
+
+//****************************************************************
+//        Various utils and helpers
+//****************************************************************
+
+
+
+// Measure timing 
+function mjerenjePerformansi (startT,endT) {
+	var vrijeme=(endT - startT);
+	if (vrijeme>peekTime) peekTime=vrijeme;
+	brojRacunanja++;
+	ukupnoVrijeme=ukupnoVrijeme+vrijeme;
+	var prosjek=ukupnoVrijeme/brojRacunanja;
+}
+
+
+// Are two coords identical?
+function vertexesIdentical (t1,t2) {
+	var odgovor=false;
+	if (t1[0]==t2[0] && t1[1]==t2[1]) {odgovor=true}
+	return odgovor;
+}
+
+
+function distancePtPt (t1,t2) {
+    return Math.sqrt( ((t1[0]-t2[0])**2)+((t1[1]-t2[1])**2) );
+}
+
+
+function isBeforeConflicting (doc, originPos, thisItem, conflictingItem) {	
+	    if (originPos>-1) {
+		// If originLeft is available we calculate the distance
+		var parent=doc.content[originPos].content;
+		var dThis=distancePtPt (parent, thisItem.content);
+		var dConf=distancePtPt (parent, conflictingItem.content);
+		return dThis<=dConf;
+	    } else {
+		// If not (op at index 0), have to order by id
+		return thisItem.id[0] > conflictingItem.id[0]
+	    }
+}
+
+
+//   Shallow clone array  
+Array.prototype.clone = function(){
+  return [...this];
+};
+
+// deep clone array  
+// from: https://stackoverflow.com/questions/3978492/fastest-way-to-duplicate-an-array-in-javascript-slice-vs-for-loop
+
+Array.prototype.deepClone = function(){
+  return this.map(e => Array.isArray(e) ? e.clone() : e);
+};
+
+
+
+// **************  INTERSECTION CONTROL  ******************
+
+// returns true if NO INTERSECTION occurs for this config
+function checkIntersection (doc, newItemPt, otherItemIdx, rangeEndLeftIdx, rangeEndRightIdx) {
+	
+	var otherPt = doc.content[otherItemIdx].content
+	var prevPtIdx= getPreviousUndeletedItemIdx(doc,otherItemIdx)
+	var PrevPt=doc.content[prevPtIdx].content
+	if (rangeEndLeftIdx>0) var p1Idx=getNextUndeletedItemIdx (doc, rangeEndLeftIdx-1)
+	//else var p1Idx=getNextUndeletedItemIdx (doc, rangeEndLeftIdx)  
+	else var p1Idx=getPreviousUndeletedItemIdx (doc, doc.content.length) 
+	
+	do {
+		var p2Idx=getNextUndeletedItemIdx (doc, p1Idx) 
+		var p1Pt=doc.content[p1Idx].content;  
+		var p2Pt=doc.content[p2Idx].content;  
+		//console.log ("DOING LINE " + p1Pt + "-" + p2Pt)
+		//console.log ("At " + p2Idx + "-" + p1Idx)
+		if (!(otherItemIdx==p2Idx && prevPtIdx==p1Idx)) {
+			var intersection1=false
+			var intersection2=false
+			if (p1Idx != prevPtIdx && p2Idx != prevPtIdx) intersection2=doIntersect(PrevPt, newItemPt, p1Pt, p2Pt)
+			if (otherItemIdx != p2Idx && otherItemIdx != p1Idx) intersection1=doIntersect(newItemPt, otherPt, p1Pt, p2Pt)
+			//console.log ("RESULT " + intersection1 + "-"+ intersection2)
+			if (intersection1 || intersection2) {console.log ("NOT GOOD"); return false}
+		} 
+		p1Idx=p2Idx
+	} while (p2Idx<rangeEndRightIdx)
+
+
+	console.log ("ACCEPTABLE")
+	return true
+		
+}
+
+
+// Given three collinear points p, q, r, the function checks if
+// point q lies on line segment 'pr'
+function onSegment(p, q, r)
+{
+    if (q[0] <= Math.max(p[0], r[0]) && q[0] >= Math.min(p[0], r[0]) &&
+        q[1] <= Math.max(p[1], r[1]) && q[1] >= Math.min(p[1], r[1]))
+    return true;
+    
+    return false;
+}
+  
+// To find orientation of ordered triplet (p, q, r).
+// The function returns following values
+// 0 --> p, q and r are collinear
+// 1 --> Clockwise
+// 2 --> Counterclockwise
+function orientation(p, q, r)
+{
+    // See https://www.geeksforgeeks.org/orientation-3-ordered-points/
+    // for details of below formula.
+    let val = (q[1] - p[1]) * (r[0] - q[0]) - (q[0] - p[0]) * (r[1] - q[1]);
+    if (val == 0) return 0; // collinear
+    
+    return (val > 0)? 1: 2; // clock or counterclock wise
+}
+  
+// https://www.geeksforgeeks.org/check-if-two-given-line-segments-intersect/
+// The main function that returns true if line segment 'p1q1'
+// and 'p2q2' intersect.
+function doIntersect(p1, q1, p2, q2)
+{
+  
+
+    // Find the four orientations needed for general and
+    // special cases
+    let o1 = orientation(p1, q1, p2);
+    let o2 = orientation(p1, q1, q2);
+    let o3 = orientation(p2, q2, p1);
+    let o4 = orientation(p2, q2, q1);
+
+    
+    // General case
+    if (o1 != o2 && o3 != o4)
+        return true;
+    
+    // Special Cases
+    // p1, q1 and p2 are collinear and p2 lies on segment p1q1
+    if (o1 == 0 && onSegment(p1, p2, q1)) return true;
+    
+    // p1, q1 and q2 are collinear and q2 lies on segment p1q1
+    if (o2 == 0 && onSegment(p1, q2, q1)) return true;
+    
+    // p2, q2 and p1 are collinear and p1 lies on segment p2q2
+    if (o3 == 0 && onSegment(p2, p1, q2)) return true;
+    
+    // p2, q2 and q1 are collinear and q1 lies on segment p2q2
+    if (o4 == 0 && onSegment(p2, q1, q2)) return true;
+    
+    return false; // Doesn't fall in any of the above cases
+}
+
+
+// **************  ANGLE CONTROL  ******************
+
+function angle3Pts (P1,P2,P3) {
+	var angle =  Math.atan2(P3[1] - P1[1], P3[0] - P1[0]) - Math.atan2(P2[1] - P1[1], P2[0] - P1[0]);
+	return angle;
+}
+
+
+function angleAtPt (doc, newItemPt, currentItemIdx) {
+	
+	var prevPtIdx= getPreviousUndeletedItemIdx(doc,currentItemIdx)
+	var prevPt=doc.content[prevPtIdx].content
+	var currentPt=doc.content[currentItemIdx].content;
+
+	//console.log ( newItemPt,  currentPt, PrevPt);
+
+	var angle = angle3Pts (newItemPt,prevPt,currentPt);
+	var redAngle = Math.abs (3.14-Math.abs(angle));
+	//console.log ("Raw Ange at this=" + angle)
+	//console.log ("Red Ange at this=" + redAngle)
+
+	return redAngle
+
+}
+
+
+
+    </script>
+  </body>
+</html>
