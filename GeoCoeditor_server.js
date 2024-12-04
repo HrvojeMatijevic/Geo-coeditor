@@ -9,9 +9,7 @@ const httpServer = require('http').createServer();
   pingTimeout: 100000,
   pingInterval: 300000,
   cors: {
-origin: "http://192.168.1.116:8080",    // DOma
-//origin: "http://10.0.239.86:8080",    // UNIN
-//    origin: "http://www.sasavranic.com",
+origin: "http://192.168.1.116:8080",   
     methods: ["GET", "POST"]
   }
 });
