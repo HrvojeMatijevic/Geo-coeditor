@@ -1,7 +1,7 @@
 # Geo-coeditor
 
 This is the implementation of CRDT based real-time GIS geometry co-editing system following the
-paper [Matijević, Vranić, Kranjčić, Cetl (2024). Real-time co-editing of geographic features](#).
+paper [Matijević, Vranić, Kranjčić, Cetl (2024). Real-time co-editing of geographic features](https://www.mdpi.com/2220-9964/13/12/441).
 
 ## Concept and architecture
 It works using [Joseph Gentle’s Reference CRDTs](https://github.com/josephg/reference-crdts) and
@@ -32,6 +32,9 @@ NOTE: When in editing mode, if a user clicks inside of the polygon then the clie
 (signalled by displaying the coordinates in red color). While in paused mode, the client still receives
 remote updates but does not integrate nor redraw until the client exits the paused mode. Exiting of
 the paused mode is don by completing a local edit or by exiting editing mode.
+User can select several different background layers which are visualized underneath the uploaded geometry.
+By default, the background layer is not set. User can choose between [OpenStreetMap (OSM)](https://www.openstreetmap.org) and
+[SGA Geoportal Digital orthophoto 2011 - WMS for anonymous users](https://geoportal.dgu.hr/#/menu/podaci-i-servisi)
 
 ## LICENSE
 
